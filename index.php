@@ -21,6 +21,12 @@ $client->setToken($_GET['token']);
 /** @var \Slack\User[] $usersById */
 $usersById = [];
 
+$allTheData = [
+    'channels' => [],
+    'groups' => [],
+    'dms' => [],
+];
+
 // The callbacks we'll use
 // =======================
 
@@ -28,22 +34,18 @@ $usersById = [];
 // -------
 
 $failHandler = function ($data) {
-    echo "Failed to get something!";
+    echo "<p>Failed to get something!</p>";
 };
 
 // Getting channels
 // -----------------
 
-$gotChannels = function ($channels) {
-    echo "<p><b>Your channels</b></p>";
+$gotChannels = function ($channels) use (&$allTheData) {
     /** @var \Slack\Channel $channel */
     foreach ($channels as $channel) {
 
         if ($channel->data['is_member'] && !$channel->isArchived()) {
-            echo sprintf(
-                '<p>%s</p>',
-                $channel->getName()
-            );
+            $allTheData['channels'][] = $channel;
         }
     }
 };
@@ -51,15 +53,11 @@ $gotChannels = function ($channels) {
 // Getting groups (private channels and multi-person DMs)
 // -------------------------------------------------------
 
-$gotGroups = function ($groups) {
-    echo "<p><b>Your private groups</b></p>";
+$gotGroups = function ($groups) use (&$allTheData) {
     /** @var \Slack\Group $group */
     foreach ($groups as $group) {
         if (!$group->isArchived()) {
-            echo sprintf(
-                '<p>%s</p>',
-                $group->getName()
-            );
+            $allTheData['groups'][] = $group;
         }
     }
 };
@@ -67,13 +65,15 @@ $gotGroups = function ($groups) {
 // Getting IMs
 // -----------
 
-$gotDMs = function($dms) use (&$usersById) {
-    echo '<p><b>Got DMs!</b></p>';
+$gotDMs = function($dms) use (&$usersById, &$allTheData) {
     /** @var \Slack\DirectMessageChannel $dm */
     foreach ($dms as $dm) {
         $user = $usersById[$dm->data['user']];
         if (!$user->isDeleted()) {
-            echo sprintf('<p>%s</p>', $user->getUsername());
+            $allTheData['dms'][] = [
+                'dm' => $dm,
+                'user' => $user,
+            ];
         }
     }
 };
@@ -85,12 +85,13 @@ $client->getUsers()->then(function ($users) use (
     $client, $gotChannels, $gotDMs, $gotGroups, $failHandler, &$usersById
 ) {
 
+    // build up an array of users, keyed on ID
     /** @var \Slack\User $user */
     foreach ($users as $user) {
         $usersById[$user->getId()] = $user;
     }
 
-    // build up an array of users, keyed on ID
+    // call stuff that relies on this
 
     $client->getChannels()->then($gotChannels, $failHandler);
     $client->getDMs()->then($gotDMs, $failHandler);
@@ -98,7 +99,32 @@ $client->getUsers()->then(function ($users) use (
 
 }, $failHandler);
 
-// Don't forget to run the loop!
-// ==============================
+// Run the loop and parse the data to write out the output
+// =======================================================
 
 $loop->run();
+
+echo "<p><b>Your public channels</b></p>";
+
+/** @var \Slack\Channel $channel */
+foreach ($allTheData['channels'] as $channel) {
+    echo $channel->getName() . '<br/>';
+}
+
+echo "<p><b>Your private channels and multi-person DMs</b></p>";
+
+/** @var \Slack\Group $group */
+foreach ($allTheData['groups'] as $group) {
+    echo $group->getName() . '<br/>';
+}
+
+echo "<p><b>Your DMs</b></p>";
+
+foreach ($allTheData['dms'] as $dmAndUser) {
+    /** @var \Slack\DirectMessageChannel $dm */
+    /** @var \Slack\User $user */
+    $dm = $dmAndUser['dm'];
+    $user = $dmAndUser['user'];
+
+    echo $user->getUsername() . '<br/>';
+}
