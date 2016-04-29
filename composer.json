@@ -1,0 +1,9 @@
+{
+    "name": "sampart/slack-summaries",
+    "description": "Slack Summaries - Hack Day project",
+    "require": {
+        "coderstephen/slack-client": "*"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
