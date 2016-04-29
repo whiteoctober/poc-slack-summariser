@@ -34,15 +34,31 @@ $failHandler = function ($data) {
 // Getting channels
 // -----------------
 
-$gotChannels = function ($channels) use ($usersById) {
+$gotChannels = function ($channels) {
     echo "<p><b>Your channels</b></p>";
     /** @var \Slack\Channel $channel */
     foreach ($channels as $channel) {
 
-        if ($channel->data['is_member']) {
+        if ($channel->data['is_member'] && !$channel->isArchived()) {
             echo sprintf(
                 '<p>%s</p>',
                 $channel->getName()
+            );
+        }
+    }
+};
+
+// Getting groups (private channels and multi-person DMs)
+// -------------------------------------------------------
+
+$gotGroups = function ($groups) {
+    echo "<p><b>Your private groups</b></p>";
+    /** @var \Slack\Group $group */
+    foreach ($groups as $group) {
+        if (!$group->isArchived()) {
+            echo sprintf(
+                '<p>%s</p>',
+                $group->getName()
             );
         }
     }
@@ -65,7 +81,9 @@ $gotDMs = function($dms) use (&$usersById) {
 // Actually call the stuff
 // ========================
 
-$client->getUsers()->then(function ($users) use ($client, $gotChannels, $gotDMs, $failHandler, &$usersById) {
+$client->getUsers()->then(function ($users) use (
+    $client, $gotChannels, $gotDMs, $gotGroups, $failHandler, &$usersById
+) {
 
     /** @var \Slack\User $user */
     foreach ($users as $user) {
@@ -76,6 +94,7 @@ $client->getUsers()->then(function ($users) use ($client, $gotChannels, $gotDMs,
 
     $client->getChannels()->then($gotChannels, $failHandler);
     $client->getDMs()->then($gotDMs, $failHandler);
+    $client->getGroups()->then($gotGroups, $failHandler);
 
 }, $failHandler);
 
