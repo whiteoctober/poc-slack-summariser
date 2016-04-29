@@ -179,15 +179,24 @@ $client->getUsers()->then(function ($users) use (
 
 $loop->run();
 
+function formatUserMention($username) {
+    return "<span class=\"user-mention\">@{$username}</span>";
+}
+
 function formatMessage($message, $usersById)
 {
-    // Sort out user mentionds
+    // Sort out user mentions
+
+    $message = str_replace('<!channel>', formatUserMention('channel'), $message);
+
     $message = preg_replace_callback('/<@([^>]+)>/', function ($string) use (&$usersById) {
         /** @var User[] $usersById */
-        if (array_key_exists($string[1], $usersById)) {
-            $user = $usersById[$string[1]];
+        $username = $string[1];
 
-            return '@' . $user->getUsername();
+        if (array_key_exists($username, $usersById)) {
+            $user = $usersById[$username];
+
+            return formatUserMention($user->getUsername());
         }
 
         return $string[0];
@@ -199,38 +208,55 @@ function formatMessage($message, $usersById)
 function printMessage(array $message, $usersById)
 {
     echo (sprintf(
-        '<blockquote><i>%s</i> %s: %s</blockquote>',
-        date('j M Y G:i', $message['ts']),
+        '<blockquote><p class="msg-header"><span class="username">%s</span> <span class="msg-date">%s</span></p><p>%s</p></blockquote>',
         $message['username'],
+        date('j M Y G:i', $message['ts']),
         formatMessage($message['text'], $usersById)
     ));
 }
+
+function printChannelName($name, $extraStuff = '')
+{
+    echo sprintf('<p class="channel-name"><span class="channel-hash">#</span> <b>%s</b>%s</p>', $name, $extraStuff);
+}
+
+echo <<<EOD
+<!doctype html>
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="style.css">
+        <meta charset="UTF-8">
+        <title>Slack Headlines</title>
+    </head>
+
+    <body>
+EOD;
+
 
 echo "<h1>Your public channels</h1>";
 
 foreach ($allTheData['channels'] as $channelArray) {
     /** @var \Slack\Channel $channel */
     $channel = $channelArray['channel'];
-    echo sprintf(
-        '<b>%s</b> (%d)<br/>',
-        $channel->getName(),
-        $channel->getUnreadCount()
-    );
 
+    printChannelName($channel->getName(), sprintf(
+        ' (%d)',
+        $channel->getUnreadCount()
+    ));
     printMessage($channelArray['message'], $usersById);
 }
 
-echo "<h1>Your private channels and multi-person DMs</h1>";
+echo "<h1 class=\"later-header\">Your private channels and multi-person DMs</h1>";
 
 foreach ($allTheData['groups'] as $groupArray) {
     /** @var \Slack\Group $group */
     $group = $groupArray['channel'];
-    echo sprintf('<b>%s</b><br/>', $group->getName());
 
+    printChannelName($group->getName());
     printMessage($groupArray['message'], $usersById);
 }
 
-echo "<h1>Your DMs</h1>";
+echo "<h1 class=\"later-header\">Your DMs</h1>";
 
 foreach ($allTheData['dms'] as $dmArray) {
 
@@ -240,7 +266,12 @@ foreach ($allTheData['dms'] as $dmArray) {
     /** @var User $user */
     $user = $dmArray['dmUser'];
 
-    echo sprintf('<b>%s</b><br/>', $user->getUsername());
-
+    printChannelName($user->getUsername());
     printMessage($dmArray['message'], $usersById);
 }
+
+echo <<<EOD
+    </body>
+</html>
+EOD;
+
