@@ -40,29 +40,35 @@ $failHandler = function ($data) {
     var_dump($data);
 };
 
+// Getting messages
+// -----------------
+
+$gotMessagesFunctionMaker = function($type, $channelOrWhatever) use (&$allTheData, &$usersById) {
+    return function ($payload) use (&$allTheData, &$usersById, $type, $channelOrWhatever) {
+        /** @var Payload $payload */
+        $data = $payload->getData();
+
+        $unread = (int)$data['unread_count_display'];
+        $messages = $data['messages'];
+
+        if ($unread > 0) {
+            $message = $messages[$unread - 1]; // -1 as arrays are 0-indexed
+            $message['user'] = $usersById[$message['user']];
+            $allTheData[$type][$channelOrWhatever->getId()]['channel'] = $channelOrWhatever;
+            $allTheData[$type][$channelOrWhatever->getId()]['message'] = $message;
+        }
+    };
+};
+
 // Getting channels
 // -----------------
 
-$gotChannel = function ($channel) use (&$allTheData, &$usersById, $client, $failHandler) {
+$gotChannel = function ($channel) use (&$allTheData, &$usersById, $client, $failHandler, $gotMessagesFunctionMaker) {
     // $channel->getUnreadCount() seems slightly unreliable with some false positives,
     // but we check against the unread again in the callback from channels.history where it's more accurate
     /** @var \Slack\Channel $channel */
     if ($channel->getUnreadCount()) {
-
-        $gotMessages = function ($payload) use ($channel, &$allTheData, $usersById) {
-            /** @var Payload $payload */
-            $data = $payload->getData();
-
-            $unread = (int)$data['unread_count_display'];
-            $messages = $data['messages'];
-
-            if ($unread > 0 ) {
-                $message = $messages[$unread - 1]; // -1 as arrays are 0-indexed
-                $message['user'] = $usersById[$message['user']];
-                $allTheData['channels'][$channel->getId()]['channel'] = $channel;
-                $allTheData['channels'][$channel->getId()]['message'] = $message;
-            }
-        };
+        $gotMessages = $gotMessagesFunctionMaker('channels', $channel);
 
         $client->apiCall('channels.history', [
             'channel' => $channel->getId(),
