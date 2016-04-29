@@ -1,5 +1,8 @@
 <?php
 
+// http://stackoverflow.com/a/17539561/328817
+header("content-type: text/html; charset=UTF-8");
+
 use Slack\ClientObject;
 use Slack\Payload;
 
