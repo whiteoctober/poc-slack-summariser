@@ -35,17 +35,25 @@ $allTheData = [
 
 $failHandler = function ($data) {
     echo "<p>Failed to get something!</p>";
+    var_dump($data);
 };
 
 // Getting channels
 // -----------------
 
-$gotChannels = function ($channels) use (&$allTheData) {
+$gotChannel = function ($channel) use (&$allTheData) {
+    /** @var \Slack\Channel $channel */
+    if ($channel->getUnreadCount()) {
+        $allTheData['channels'][$channel->getId()] = $channel;
+    }
+};
+
+$gotChannels = function ($channels) use (&$allTheData, $client, $gotChannel, $failHandler) {
     /** @var \Slack\Channel $channel */
     foreach ($channels as $channel) {
 
         if ($channel->data['is_member'] && !$channel->isArchived()) {
-            $allTheData['channels'][] = $channel;
+            $client->getChannelById($channel->getId())->then($gotChannel, $failHandler);
         }
     }
 };
@@ -91,7 +99,7 @@ $client->getUsers()->then(function ($users) use (
         $usersById[$user->getId()] = $user;
     }
 
-    // call stuff that relies on this
+    // call stuff that relies on this (these will in turn make further calls)
 
     $client->getChannels()->then($gotChannels, $failHandler);
     $client->getDMs()->then($gotDMs, $failHandler);
@@ -108,7 +116,11 @@ echo "<p><b>Your public channels</b></p>";
 
 /** @var \Slack\Channel $channel */
 foreach ($allTheData['channels'] as $channel) {
-    echo $channel->getName() . '<br/>';
+    echo sprintf(
+        '%s, (%d)<br/>',
+        $channel->getName(),
+        $channel->getUnreadCount()
+    );
 }
 
 echo "<p><b>Your private channels and multi-person DMs</b></p>";
