@@ -56,7 +56,7 @@ $gotMessagesFunctionMaker = function($type, $channelOrWhatever, $dmUser = null) 
         /** @var Payload $payload */
         $data = $payload->getData();
 
-        $unread = (int)$data['unread_count_display'];
+        $unread = $channelOrWhatever->data['unread_count'];
         $messages = $data['messages'];
 
         if ($unread > 0) {
@@ -80,8 +80,6 @@ $gotMessagesFunctionMaker = function($type, $channelOrWhatever, $dmUser = null) 
 // -----------------
 
 $gotChannel = function ($channel) use (&$allTheData, &$usersById, $client, $failHandler, $gotMessagesFunctionMaker) {
-    // $channel->getUnreadCount() seems slightly unreliable with some false positives,
-    // but we check against the unread again in the callback from channels.history where it's more accurate
     /** @var \Slack\Channel $channel */
     if ($channel->getUnreadCount()) {
         $gotMessages = $gotMessagesFunctionMaker('channels', $channel);
