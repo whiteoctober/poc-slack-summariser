@@ -1,5 +1,7 @@
 <?php
 
+use Slack\Payload;
+
 require __DIR__ . '/vendor/autoload.php';
 
 // Die if no token
@@ -41,10 +43,31 @@ $failHandler = function ($data) {
 // Getting channels
 // -----------------
 
-$gotChannel = function ($channel) use (&$allTheData) {
+$gotChannel = function ($channel) use (&$allTheData, &$usersById, $client, $failHandler) {
+    // $channel->getUnreadCount() seems slightly unreliable with some false positives,
+    // but we check against the unread again in the callback from channels.history where it's more accurate
     /** @var \Slack\Channel $channel */
     if ($channel->getUnreadCount()) {
-        $allTheData['channels'][$channel->getId()] = $channel;
+
+        $gotMessages = function ($payload) use ($channel, &$allTheData, $usersById) {
+            /** @var Payload $payload */
+            $data = $payload->getData();
+
+            $unread = (int)$data['unread_count_display'];
+            $messages = $data['messages'];
+
+            if ($unread > 0 ) {
+                $message = $messages[$unread - 1]; // -1 as arrays are 0-indexed
+                $message['user'] = $usersById[$message['user']];
+                $allTheData['channels'][$channel->getId()]['channel'] = $channel;
+                $allTheData['channels'][$channel->getId()]['message'] = $message;
+            }
+        };
+
+        $client->apiCall('channels.history', [
+            'channel' => $channel->getId(),
+            'unreads' => 1
+        ])->then($gotMessages, $failHandler);
     }
 };
 
@@ -112,25 +135,34 @@ $client->getUsers()->then(function ($users) use (
 
 $loop->run();
 
-echo "<p><b>Your public channels</b></p>";
+echo "<h1>Your public channels</h1>";
 
-/** @var \Slack\Channel $channel */
-foreach ($allTheData['channels'] as $channel) {
+foreach ($allTheData['channels'] as $channelArray) {
+    /** @var \Slack\Channel $channel */
+    $channel = $channelArray['channel'];
     echo sprintf(
-        '%s, (%d)<br/>',
+        '<b>%s</b> (%d)<br/>',
         $channel->getName(),
         $channel->getUnreadCount()
     );
+
+    $message = $channelArray['message'];
+    echo (sprintf(
+        '<blockquote><i>%s</i> %s: %s</blockquote>',
+        date('j M Y G:i', $message['ts']),
+        $message['user']->getUsername(),
+        $message['text']
+    ));
 }
 
-echo "<p><b>Your private channels and multi-person DMs</b></p>";
+echo "<h1>Your private channels and multi-person DMs</h1>";
 
 /** @var \Slack\Group $group */
 foreach ($allTheData['groups'] as $group) {
     echo $group->getName() . '<br/>';
 }
 
-echo "<p><b>Your DMs</b></p>";
+echo "<h1>Your DMs</h1>";
 
 foreach ($allTheData['dms'] as $dmAndUser) {
     /** @var \Slack\DirectMessageChannel $dm */
