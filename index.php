@@ -53,7 +53,13 @@ $gotMessagesFunctionMaker = function($type, $channelOrWhatever) use (&$allTheDat
 
         if ($unread > 0) {
             $message = $messages[$unread - 1]; // -1 as arrays are 0-indexed
-            $message['user'] = $usersById[$message['user']];
+            if (array_key_exists('user', $message)) {
+                // a user
+                $message['user'] = $usersById[$message['user']]->getUsername();
+            } else {
+                // a bot
+                $message['user'] = $message['username'];
+            }
             $allTheData[$type][$channelOrWhatever->getId()]['channel'] = $channelOrWhatever;
             $allTheData[$type][$channelOrWhatever->getId()]['message'] = $message;
         }
@@ -156,7 +162,7 @@ foreach ($allTheData['channels'] as $channelArray) {
     echo (sprintf(
         '<blockquote><i>%s</i> %s: %s</blockquote>',
         date('j M Y G:i', $message['ts']),
-        $message['user']->getUsername(),
+        $message['user'],
         $message['text']
     ));
 }
