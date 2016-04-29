@@ -1,5 +1,6 @@
 <?php
 
+use Slack\ClientObject;
 use Slack\Payload;
 
 require __DIR__ . '/vendor/autoload.php';
@@ -43,8 +44,15 @@ $failHandler = function ($data) {
 // Getting messages
 // -----------------
 
-$gotMessagesFunctionMaker = function($type, $channelOrWhatever) use (&$allTheData, &$usersById) {
-    return function ($payload) use (&$allTheData, &$usersById, $type, $channelOrWhatever) {
+/**
+ * @param string $type
+ * @param ClientObject $channelOrWhatever
+ * @param null|\Slack\User $dmUser -- if $type == 'dms', pass in the user who the DM channel is for
+ *
+ * @return Closure
+ */
+$gotMessagesFunctionMaker = function($type, $channelOrWhatever, $dmUser = null) use (&$allTheData, &$usersById) {
+    return function ($payload) use (&$allTheData, &$usersById, $type, $channelOrWhatever, $dmUser) {
         /** @var Payload $payload */
         $data = $payload->getData();
 
@@ -53,15 +61,17 @@ $gotMessagesFunctionMaker = function($type, $channelOrWhatever) use (&$allTheDat
 
         if ($unread > 0) {
             $message = $messages[$unread - 1]; // -1 as arrays are 0-indexed
-            if (array_key_exists('user', $message)) {
-                // a user
-                $message['user'] = $usersById[$message['user']]->getUsername();
-            } else {
-                // a bot
-                $message['user'] = $message['username'];
+            // Messages from bots have a username key set with their username in.
+            // Messages from users don't, but do have the user ID (not username) stored under the `user` key.
+            if (!array_key_exists('username', $message)) {
+                $message['username'] = $usersById[$message['user']]->getUsername();
             }
             $allTheData[$type][$channelOrWhatever->getId()]['channel'] = $channelOrWhatever;
             $allTheData[$type][$channelOrWhatever->getId()]['message'] = $message;
+
+            if ($dmUser) {
+                $allTheData[$type][$channelOrWhatever->getId()]['dmUser'] = $dmUser;
+            }
         }
     };
 };
@@ -96,11 +106,23 @@ $gotChannels = function ($channels) use (&$allTheData, $client, $gotChannel, $fa
 // Getting groups (private channels and multi-person DMs)
 // -------------------------------------------------------
 
-$gotGroups = function ($groups) use (&$allTheData) {
+$gotGroup = function ($group) use ($client, $gotMessagesFunctionMaker, $failHandler) {
+    /** @var \Slack\Group $group */
+    if ($group->getUnreadCount()) {
+        $gotMessages = $gotMessagesFunctionMaker('groups', $group);
+
+        $client->apiCall('groups.history', [
+            'channel' => $group->getId(),
+            'unreads' => 1
+        ])->then($gotMessages, $failHandler);
+    }
+};
+
+$gotGroups = function ($groups) use ($client, $gotGroup, $failHandler) {
     /** @var \Slack\Group $group */
     foreach ($groups as $group) {
         if (!$group->isArchived()) {
-            $allTheData['groups'][] = $group;
+            $client->getGroupById($group->getId())->then($gotGroup, $failHandler);
         }
     }
 };
@@ -108,15 +130,23 @@ $gotGroups = function ($groups) use (&$allTheData) {
 // Getting IMs
 // -----------
 
-$gotDMs = function($dms) use (&$usersById, &$allTheData) {
+$gotDM = function ($dm) use (&$usersById, $client, $gotMessagesFunctionMaker, $failHandler) {
+    /** @var \Slack\DirectMessageChannel $dm */
+    $user = $usersById[$dm->data['user']];
+    $gotMessages = $gotMessagesFunctionMaker('dms', $dm, $user);
+
+    $client->apiCall('im.history', [
+        'channel' => $dm->getId(),
+        'unreads' => 1
+    ])->then($gotMessages, $failHandler);
+};
+
+$gotDMs = function($dms) use (&$usersById, &$allTheData, $client, $gotDM, $failHandler) {
     /** @var \Slack\DirectMessageChannel $dm */
     foreach ($dms as $dm) {
         $user = $usersById[$dm->data['user']];
         if (!$user->isDeleted()) {
-            $allTheData['dms'][] = [
-                'dm' => $dm,
-                'user' => $user,
-            ];
+            $client->getDMById($dm->getId())->then($gotDM, $failHandler);
         }
     }
 };
@@ -147,6 +177,16 @@ $client->getUsers()->then(function ($users) use (
 
 $loop->run();
 
+function printMessage(array $message)
+{
+    echo (sprintf(
+        '<blockquote><i>%s</i> %s: %s</blockquote>',
+        date('j M Y G:i', $message['ts']),
+        $message['username'],
+        $message['text']
+    ));
+}
+
 echo "<h1>Your public channels</h1>";
 
 foreach ($allTheData['channels'] as $channelArray) {
@@ -158,29 +198,30 @@ foreach ($allTheData['channels'] as $channelArray) {
         $channel->getUnreadCount()
     );
 
-    $message = $channelArray['message'];
-    echo (sprintf(
-        '<blockquote><i>%s</i> %s: %s</blockquote>',
-        date('j M Y G:i', $message['ts']),
-        $message['user'],
-        $message['text']
-    ));
+    printMessage($channelArray['message']);
 }
 
 echo "<h1>Your private channels and multi-person DMs</h1>";
 
-/** @var \Slack\Group $group */
-foreach ($allTheData['groups'] as $group) {
-    echo $group->getName() . '<br/>';
+foreach ($allTheData['groups'] as $groupArray) {
+    /** @var \Slack\Group $group */
+    $group = $groupArray['channel'];
+    echo sprintf('<b>%s</b><br/>', $group->getName());
+
+    printMessage($groupArray['message']);
 }
 
 echo "<h1>Your DMs</h1>";
 
-foreach ($allTheData['dms'] as $dmAndUser) {
-    /** @var \Slack\DirectMessageChannel $dm */
-    /** @var \Slack\User $user */
-    $dm = $dmAndUser['dm'];
-    $user = $dmAndUser['user'];
+foreach ($allTheData['dms'] as $dmArray) {
 
-    echo $user->getUsername() . '<br/>';
+    /** @var \Slack\DirectMessageChannel $dm */
+    $dm = $dmArray['channel'];
+
+    /** @var \Slack\User $user */
+    $user = $dmArray['dmUser'];
+
+    echo sprintf('<b>%s</b><br/>', $user->getUsername());
+
+    printMessage($dmArray['message']);
 }
