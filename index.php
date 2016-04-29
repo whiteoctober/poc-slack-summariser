@@ -4,6 +4,7 @@
 header("content-type: text/html; charset=UTF-8");
 
 use Slack\ClientObject;
+use Slack\User;
 use Slack\Payload;
 
 require __DIR__ . '/vendor/autoload.php';
@@ -24,7 +25,7 @@ $loop = \React\EventLoop\Factory::create();
 $client = new \Slack\ApiClient($loop);
 $client->setToken($_GET['token']);
 
-/** @var \Slack\User[] $usersById */
+/** @var User[] $usersById */
 $usersById = [];
 
 $allTheData = [
@@ -178,13 +179,30 @@ $client->getUsers()->then(function ($users) use (
 
 $loop->run();
 
-function printMessage(array $message)
+function formatMessage($message, $usersById)
+{
+    // Sort out user mentionds
+    $message = preg_replace_callback('/<@([^>]+)>/', function ($string) use (&$usersById) {
+        /** @var User[] $usersById */
+        if (array_key_exists($string[1], $usersById)) {
+            $user = $usersById[$string[1]];
+
+            return '@' . $user->getUsername();
+        }
+
+        return $string[0];
+    }, $message);
+
+    return $message;
+}
+
+function printMessage(array $message, $usersById)
 {
     echo (sprintf(
         '<blockquote><i>%s</i> %s: %s</blockquote>',
         date('j M Y G:i', $message['ts']),
         $message['username'],
-        $message['text']
+        formatMessage($message['text'], $usersById)
     ));
 }
 
@@ -199,7 +217,7 @@ foreach ($allTheData['channels'] as $channelArray) {
         $channel->getUnreadCount()
     );
 
-    printMessage($channelArray['message']);
+    printMessage($channelArray['message'], $usersById);
 }
 
 echo "<h1>Your private channels and multi-person DMs</h1>";
@@ -209,7 +227,7 @@ foreach ($allTheData['groups'] as $groupArray) {
     $group = $groupArray['channel'];
     echo sprintf('<b>%s</b><br/>', $group->getName());
 
-    printMessage($groupArray['message']);
+    printMessage($groupArray['message'], $usersById);
 }
 
 echo "<h1>Your DMs</h1>";
@@ -219,10 +237,10 @@ foreach ($allTheData['dms'] as $dmArray) {
     /** @var \Slack\DirectMessageChannel $dm */
     $dm = $dmArray['channel'];
 
-    /** @var \Slack\User $user */
+    /** @var User $user */
     $user = $dmArray['dmUser'];
 
     echo sprintf('<b>%s</b><br/>', $user->getUsername());
 
-    printMessage($dmArray['message']);
+    printMessage($dmArray['message'], $usersById);
 }
