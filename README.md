@@ -13,3 +13,7 @@ As this is only a proof-of-concept, there are lots of areas that need improving.
 The most important is to [do authentication properly using OAuth](https://api.slack.com/docs/oauth), rather than providing the token directly, which is very insecure.
 
 Following on from that, it might be nice to improve the look and feel, and probably use a templating engine rather than writing the HTML directly.
+
+## Update - Slack did it themselves
+
+It looks like Slack have implemented something similar themselves: https://slackhq.com/a-new-way-to-catch-up-in-slack-148857029091.
